@@ -3,11 +3,11 @@ import express from "express";
 import qrcode from "qrcode-terminal";
 
 const app = express();
-app.get("/", (req, res) => res.send("Bot is running!"));
+app.get("/", (req, res) => res.send("WhatsApp bot working ✔"));
 const port = process.env.PORT || 3000;
-app.listen(port, () => console.log(`SERVER RUNNING on PORT ${port}`));
+app.listen(port, () => console.log("🌍 WEB SERVER RUNNING"));
 
-async function connect() {
+async function startBot() {
   const { state, saveCreds } = await useMultiFileAuthState("auth_info");
   const sock = makeWASocket({
     auth: state,
@@ -17,32 +17,31 @@ async function connect() {
   sock.ev.on("creds.update", saveCreds);
 
   sock.ev.on("connection.update", ({ connection, lastDisconnect }) => {
+    if (connection === "open") {
+      console.log("🤖 BOT CONNECTED!");
+    }
     if (connection === "close") {
-      const reason = lastDisconnect?.error?.output?.statusCode;
-      if (reason !== DisconnectReason.loggedOut) {
-        connect();
+      const code = lastDisconnect?.error?.output?.statusCode;
+      if (code !== DisconnectReason.loggedOut) {
+        startBot();
       }
-    } else if (connection === "open") {
-      console.log("🔥 BOT CONNECTED!");
     }
   });
 
   sock.ev.on("messages.upsert", async ({ messages }) => {
-    const m = messages[0];
-    if (!m.message || !m.key.remoteJid) return;
-    const text = m.message.conversation || m.message.extendedTextMessage?.text;
-    if (!text) return;
+    const msg = messages[0];
+    if (!msg.message) return;
 
-    console.log("📩 Message:", text);
+    const text =
+      msg.message.conversation ||
+      msg.message.extendedTextMessage?.text;
 
-    if (text.toLowerCase() === "hi" || text.toLowerCase() === "hello") {
-      await sock.sendMessage(m.key.remoteJid, { text: "Hello 👋 Bot is Online!" });
-    }
+    console.log("📩 RECEIVED:", text);
 
-    if (text === "ping") {
-      await sock.sendMessage(m.key.remoteJid, { text: "pong!" });
+    if (text?.toLowerCase() === "hi") {
+      await sock.sendMessage(msg.key.remoteJid, { text: "Hello 👋" });
     }
   });
 }
 
-connect();
+startBot();
