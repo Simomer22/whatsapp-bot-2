@@ -1,91 +1,48 @@
-import makeWASocket, {
-    DisconnectReason,
-    useMultiFileAuthState,
-    fetchLatestBaileysVersion
-} from "@whiskeysockets/baileys"
-import Pino from "pino"
-import { Boom } from "@hapi/boom"
-import http from "http"
+import makeWASocket, { DisconnectReason, useMultiFileAuthState } from "@whiskeysockets/baileys";
+import express from "express";
+import qrcode from "qrcode-terminal";
 
-// Render keep-alive server
-http.createServer((req, res) => res.end("Bot running")).listen(process.env.PORT || 3000)
-
-const greetedUsers = new Set()
+const app = express();
+app.get("/", (req, res) => res.send("Bot is running!"));
+const port = process.env.PORT || 3000;
+app.listen(port, () => console.log(`SERVER RUNNING on PORT ${port}`));
 
 async function connect() {
-    const { state, saveCreds } = await useMultiFileAuthState("./auth_info")
-    const { version } = await fetchLatestBaileysVersion()
+  const { state, saveCreds } = await useMultiFileAuthState("auth_info");
+  const sock = makeWASocket({
+    auth: state,
+    printQRInTerminal: true
+  });
 
-    const sock = makeWASocket({
-        version,
-        logger: Pino({ level: "silent" }),
-        auth: state
-    })
+  sock.ev.on("creds.update", saveCreds);
 
-    // Show QR manually
-    sock.ev.on("connection.update", (update) => {
-        const { qr, connection, lastDisconnect } = update
+  sock.ev.on("connection.update", ({ connection, lastDisconnect }) => {
+    if (connection === "close") {
+      const reason = lastDisconnect?.error?.output?.statusCode;
+      if (reason !== DisconnectReason.loggedOut) {
+        connect();
+      }
+    } else if (connection === "open") {
+      console.log("🔥 BOT CONNECTED!");
+    }
+  });
 
-        if (qr) console.log("\n📌 SCAN THIS QR:\n", qr)
+  sock.ev.on("messages.upsert", async ({ messages }) => {
+    const m = messages[0];
+    if (!m.message || !m.key.remoteJid) return;
+    const text = m.message.conversation || m.message.extendedTextMessage?.text;
+    if (!text) return;
 
-        if (connection === "open") {
-            console.log("🤖 BOT CONNECTED!")
-        } else if (connection === "close") {
-            const reason = new Boom(lastDisconnect?.error)?.output?.statusCode
-            console.log("❌ Disconnected", reason)
-            if (reason !== DisconnectReason.loggedOut) connect()
-        }
-    })
+    console.log("📩 Message:", text);
 
-    sock.ev.on("creds.update", saveCreds)
+    if (text.toLowerCase() === "hi" || text.toLowerCase() === "hello") {
+      await sock.sendMessage(m.key.remoteJid, { text: "Hello 👋 Bot is Online!" });
+    }
 
-    sock.ev.on("messages.upsert", async ({ messages }) => {
-        const m = messages[0]
-
-        if (!m.message || m.key.fromMe || !m.key.remoteJid.endsWith("@s.whatsapp.net"))
-            return
-
-        const from = m.key.remoteJid
-        const message =
-            m.message.conversation?.toLowerCase() ||
-            m.message.extendedTextMessage?.text?.toLowerCase() ||
-            ""
-
-        // Greet only one time
-        if (!greetedUsers.has(from)) {
-            greetedUsers.add(from)
-            await sock.sendMessage(from, { text: "👋 مرحبا! كيف نقدر نعاونك؟" })
-        }
-
-        // Catalog keywords
-        if (
-            ["catalog", "كتالوگ", "produit", "product", "ثمن", "prix"].some(k => message.includes(k))
-        ) {
-            await sock.sendMessage(from, {
-                text:
-`🛍️ لائحة المنتجات الحالية:
-
-1️⃣ 🌸 Parfum — 199 MAD
-2️⃣ 💧 Crème Hydratante — 149 MAD
-3️⃣ ✨ Serum Glow — 249 MAD
-
-اكتب رقم المنتوج باش نعطيك التفاصيل 😉`
-            })
-            return
-        }
-
-        if (message === "1")
-            return sock.sendMessage(from, { text: "🌸 Parfum ثمن: 199 MAD 🚚 توصيل لكل المدن" })
-        if (message === "2")
-            return sock.sendMessage(from, { text: "💧 Crème ثمن: 149 MAD 🚚 توصيل لجميع المدن" })
-        if (message === "3")
-            return sock.sendMessage(from, { text: "✨ Serum Glow ثمن: 249 MAD 🚚 توصيل متوفر" })
-
-        // Default reply
-        if (message.length > 0) {
-            await sock.sendMessage(from, { text: `📩 توصلت: *${message}*` })
-        }
-    })
+    if (text === "ping") {
+      await sock.sendMessage(m.key.remoteJid, { text: "pong!" });
+    }
+  });
 }
 
-connect()
+connect();
