@@ -44,39 +44,48 @@ async function connect() {
 
         if (events["messages.upsert"]) {
             const m = events["messages.upsert"].messages[0]
-            if (!m.message || !m.key.remoteJid.endsWith("@s.whatsapp.net")) return
+
+            if (
+                !m.message ||
+                !m.key.remoteJid.endsWith("@s.whatsapp.net") ||
+                m.key.fromMe // ⛔ باش مايسباميش راسو
+            ) return
 
             const from = m.key.remoteJid
             const message = m.message.conversation?.toLowerCase() ||
                             m.message.extendedTextMessage?.text?.toLowerCase() ||
                             ""
 
-            // Greeting once per user
+            // Greeting once
             if (!greetedUsers.has(from)) {
                 greetedUsers.add(from)
                 await sock.sendMessage(from, { text: "👋 مرحبا بيك! كيف نقدر نعاونك؟" })
             }
 
-            // Catalog reply
+            // Catalog keywords
             const keywords = ["catalog", "كتالوگ", "produit", "product", "ثمن", "prix"]
             if (keywords.some(k => message.includes(k))) {
                 await sock.sendMessage(from, {
                     text:
 `🛍️ قائمة المنتجات:
 
-1️⃣ 🧴 Oil 200 MAD
-2️⃣ 👗 Dress 299 MAD
-3️⃣ 👟 Sneakers 450 MAD
+1️⃣ 🌸 Parfum 199 MAD
+2️⃣ 💧 Crème Hydratante 149 MAD
+3️⃣ ✨ Serum Glow 249 MAD
 
 بغيت شي حاجة؟ كتب الرقم 😉`
                 })
+                return
             }
+
+            // Reply numbers
+            if (message === "1") await sock.sendMessage(from, { text: "🌸 Parfum ثمن 199 درهم 🚚 توصيل متوفر" })
+            if (message === "2") await sock.sendMessage(from, { text: "💧 Crème Hydratante ثمن 149 درهم 🚚 توصيل متوفر" })
+            if (message === "3") await sock.sendMessage(from, { text: "✨ Serum Glow ثمن 249 درهم 🚚 توصيل متوفر" })
 
             // Default echo
             if (message.length > 0) {
-                await sock.sendMessage(from, {
-                    text: `📩 توصلت: *${message}*`
-                })
+                await sock.sendMessage(from, { text: `📩 توصلت: *${message}*` })
             }
         }
     })
